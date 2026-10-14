@@ -216,27 +216,39 @@ export async function scoreDateFromPersona(
 ): Promise<DateScorecard> {
   const model = process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite";
 
-  const systemInstruction = `You are evaluating a completed first date strictly from the perspective and standards of ${evaluator.name}.
-Your personality profile:
+  const systemInstruction = `You are ${evaluator.name}'s dating agent, privately scoring a first date on ${evaluator.name}'s behalf.
+${evaluator.name}'s profile (from their public LinkedIn & Instagram):
 - Summary: ${evaluator.profile.summary}
+- Lifestyle: ${evaluator.profile.lifestyle}
+- Hobbies: ${evaluator.profile.hobbies.join(", ")}
 - Values: ${evaluator.profile.values.join(", ")}
 - Needs: ${evaluator.profile.needs.join(", ")}
-- What you're looking for: ${evaluator.profile.looking_for}
+- Looking for: ${evaluator.profile.looking_for}
 - Deal-Breakers: ${evaluator.profile.deal_breakers.join("; ")}
 
-Be honest, discerning, and fair. Score from 0 to 100 based strictly on what happened in the date transcript.`;
+SCORING RUBRIC — be a tough, calibrated matchmaker, not a polite guest:
+- Everyone on these dates is friendly and articulate. Politeness and enthusiasm are NOT evidence of fit; ignore them.
+- Judge real fit: overlapping daily life (city, schedule, pace), concrete shared hobbies, compatible values, whether ${evaluator.name}'s specific needs were actually met, and deal-breakers.
+- Calibration: 30-50 = poor fit; 50-65 = pleasant but little real overlap; 65-78 = solid potential; 78-88 = strong, specific fit; 89+ = exceptional and rare (use for at most 1 in 10 dates).
+- Name at least one concrete friction point or open question (different cities, clashing pace, mismatched life stage, differing priorities). If you can't find a strong reason to go above 70, don't.`;
 
   const transcriptText = transcript
     .map((t) => `${t.speakerName}: "${t.message}"`)
     .join("\n");
 
   const prompt = `DATE WITH: ${partner.name}
+WHAT ${partner.name.toUpperCase()}'S PUBLIC PROFILE SHOWS:
+- Summary: ${partner.profile.summary}
+- Lifestyle: ${partner.profile.lifestyle}
+- Hobbies: ${partner.profile.hobbies.join(", ")}
+- Values: ${partner.profile.values.join(", ")}
+
 VENUE: ${venue.name}
 
 FULL DATE TRANSCRIPT:
 ${transcriptText}
 
-Evaluate ${partner.name} from your perspective across all required score categories. If any of your deal-breakers (${evaluator.profile.deal_breakers.join("; ")}) were triggered, set deal_breaker_passed to false and lower the score accordingly.`;
+Score ${partner.name} from ${evaluator.name}'s perspective on every category using the rubric. If any of ${evaluator.name}'s deal-breakers (${evaluator.profile.deal_breakers.join("; ")}) were triggered, set deal_breaker_passed to false. In "reason", say what genuinely fits AND the main friction point.`;
 
   const result = await callGeminiJson<DateScorecard>(
     prompt,
@@ -244,9 +256,24 @@ Evaluate ${partner.name} from your perspective across all required score categor
     {
       model,
       systemInstruction,
-      temperature: 0.3,
+      temperature: 0.2,
     }
   );
+
+  // Blend the model's overall verdict with a weighted average of its sub-scores, so the
+  // final number reflects concrete fit dimensions rather than the date's general mood.
+  if (result.data) {
+    const d = result.data;
+    const weighted =
+      0.25 * (d.shared_interests ?? 60) +
+      0.25 * (d.values_alignment ?? 60) +
+      0.2 * (d.lifestyle_fit ?? 60) +
+      0.1 * (d.communication_chemistry ?? 60) +
+      0.2 * (d.needs_met ?? 60);
+    let overall = Math.round(0.5 * (d.overall_score ?? weighted) + 0.5 * weighted);
+    if (d.deal_breaker_passed === false) overall = Math.min(overall, 45);
+    d.overall_score = Math.max(0, Math.min(100, overall));
+  }
 
   return (
     result.data || {
@@ -528,4 +555,43 @@ export async function buildScheduleForPerson(personId: string, count = 3): Promi
     })
     .sort((a, b) => b.mutualPrescreen - a.mutualPrescreen)
     .slice(0, count);
+}
+
+/**
+ * Re-runs both private scorecards for every completed date (transcripts are kept).
+ */
+export async function rescoreAllDates(
+  onProgress?: (done: number, total: number) => void,
+  before?: Date
+): Promise<number> {
+  const dates = await prisma.dateSession.findMany({
+    where: { status: "completed", ...(before ? { created_at: { lt: before } } : {}) },
+  });
+  let done = 0;
+  for (const d of dates) {
+    try {
+      const [a, b] = await Promise.all([loadCandidatePersona(d.person_a_id), loadCandidatePersona(d.person_b_id)]);
+      const turns: ConversationTurn[] = JSON.parse(d.transcript || "[]");
+      const venue: DateVenueSelection = JSON.parse(d.venue || "{}");
+      const [ab, ba] = await Promise.all([
+        scoreDateFromPersona(a, b, turns, venue),
+        scoreDateFromPersona(b, a, turns, venue),
+      ]);
+      await prisma.dateSession.update({
+        where: { id: d.id },
+        data: {
+          score_a_to_b: ab.overall_score,
+          score_b_to_a: ba.overall_score,
+          reason_a: ab.reason,
+          reason_b: ba.reason,
+          highlights: JSON.stringify([...(ab.highlights || []), ...(ba.highlights || [])]),
+        },
+      });
+    } catch (err) {
+      console.error("[Rescore] failed for date", d.id, err);
+    }
+    done++;
+    onProgress?.(done, dates.length);
+  }
+  return done;
 }
