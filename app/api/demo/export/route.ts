@@ -4,6 +4,8 @@ import path from "path";
 import { prisma } from "@/lib/db";
 import { computeTopMutualPairs } from "@/lib/ranking/engine";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/demo/export - Returns demo snapshot JSON (or reads from file)
  */
@@ -11,17 +13,14 @@ export async function GET() {
   try {
     const filePath = path.join(process.cwd(), "data", "demo-snapshot.json");
     if (fs.existsSync(filePath)) {
-      const fileContent = fs.readFileSync(filePath, "utf-8");
-      return NextResponse.json({
-        success: true,
-        data: JSON.parse(fileContent),
-      });
+      const snap = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      if (Array.isArray(snap.candidates) && snap.candidates.length > 0) {
+        return NextResponse.json({ success: true, data: snap });
+      }
     }
 
-    return NextResponse.json(
-      { success: false, error: "Demo snapshot file not found" },
-      { status: 404 }
-    );
+    // No exported snapshot: serve the finished run straight from the database.
+    return NextResponse.json({ success: true, data: await buildSnapshot() });
   } catch (err: any) {
     return NextResponse.json(
       { success: false, error: err?.message || "Failed to read demo snapshot" },
@@ -33,8 +32,7 @@ export async function GET() {
 /**
  * POST /api/demo/export - Snapshots current database state into data/demo-snapshot.json
  */
-export async function POST() {
-  try {
+async function buildSnapshot() {
     const [candidates, dates, topMutualPairs] = await Promise.all([
       prisma.person.findMany({
         where: { status: "analyzed" },
@@ -118,7 +116,7 @@ export async function POST() {
       };
     });
 
-    const snapshot = {
+    return {
       exportedAt: new Date().toISOString(),
       appName: "AgentMatch",
       description: "Live snapshot of finished autonomous run.",
@@ -126,6 +124,11 @@ export async function POST() {
       dates: formattedDates,
       topMutualPairs,
     };
+}
+
+export async function POST() {
+  try {
+    const snapshot = await buildSnapshot();
 
     const dataDir = path.join(process.cwd(), "data");
     if (!fs.existsSync(dataDir)) {
