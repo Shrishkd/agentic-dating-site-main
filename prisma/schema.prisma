@@ -1,0 +1,119 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Person {
+  id            String    @id @default(uuid())
+  name          String
+  linkedin_url  String
+  instagram_url String
+  status        String    @default("pending") // "pending" | "scraping" | "scraped" | "analyzing" | "analyzed" | "failed" | "instagram_private"
+  created_at    DateTime  @default(now())
+
+  // Relations
+  rawData       RawData[]
+  profile       Profile?
+  datesAsA      DateSession[] @relation("PersonADates")
+  datesAsB      DateSession[] @relation("PersonBDates")
+  rankings      Ranking[]     @relation("PersonRankings")
+  rankedIn      Ranking[]     @relation("TargetRankings")
+
+  @@map("people")
+}
+
+model RawData {
+  id         String   @id @default(uuid())
+  person_id  String
+  source     String   // "linkedin" | "instagram"
+  json_data  String   // JSON stringified raw payload
+  scraped_at DateTime @default(now())
+
+  // Relations
+  person     Person   @relation(fields: [person_id], references: [id], onDelete: Cascade)
+
+  @@index([person_id])
+  @@map("raw_data")
+}
+
+model Profile {
+  id                   String   @id @default(uuid())
+  person_id            String   @unique
+  summary              String
+  needs                String   // JSON array of strings
+  hobbies              String   // JSON array of strings
+  interests            String   // JSON array of strings
+  values               String   // JSON array of strings
+  personality_traits   String   // JSON array or object
+  communication_style  String
+  lifestyle            String
+  looking_for          String
+  deal_breakers        String   // JSON array of strings
+  evidence             String   // JSON array of evidence items
+  confidence_scores    String?  // JSON map of confidence levels
+  created_at           DateTime @default(now())
+
+  // Relations
+  person               Person   @relation(fields: [person_id], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model DateSession {
+  id           String   @id @default(uuid())
+  person_a_id  String
+  person_b_id  String
+  venue        String?  // Venue details and why chosen
+  transcript   String?  // JSON array of turns
+  score_a_to_b Float?
+  score_b_to_a Float?
+  reason_a     String?
+  reason_b     String?
+  highlights   String?  // JSON array of strings
+  status       String   @default("pending") // "pending" | "in_progress" | "completed" | "failed"
+  created_at   DateTime @default(now())
+
+  // Relations
+  person_a     Person   @relation("PersonADates", fields: [person_a_id], references: [id], onDelete: Cascade)
+  person_b     Person   @relation("PersonBDates", fields: [person_b_id], references: [id], onDelete: Cascade)
+
+  @@index([person_a_id])
+  @@index([person_b_id])
+  @@map("dates")
+}
+
+model Ranking {
+  id               String   @id @default(uuid())
+  person_id        String
+  ranked_person_id String
+  rank             Int
+  final_score      Float
+  explanation      String
+  created_at       DateTime @default(now())
+
+  // Relations
+  person           Person   @relation("PersonRankings", fields: [person_id], references: [id], onDelete: Cascade)
+  ranked_person    Person   @relation("TargetRankings", fields: [ranked_person_id], references: [id], onDelete: Cascade)
+
+  @@index([person_id])
+  @@index([ranked_person_id])
+  @@map("rankings")
+}
+
+model LlmCache {
+  id         String   @id @default(uuid())
+  input_hash String   @unique
+  output     String   // JSON or text string response
+  created_at DateTime @default(now())
+
+  @@index([input_hash])
+  @@map("llm_cache")
+}
