@@ -206,7 +206,7 @@ export async function computeAllRankings(): Promise<{
         : `${candidate.name} scored ${partner.name} ${Math.round(match.scoreGiven)}/100; ${partner.name} scored back ${Math.round(match.scoreReceived)}/100.`;
 
       // Gemini synthesis for the top 3 dated matches
-      if (rank <= 3 && candidate.profile && partner.profile) {
+      if (rank <= 3 && candidate.profile && partner.profile && process.env.RANKING_LLM_EXPLANATIONS !== "off") {
         try {
           const prompt = `Explain in 2 concise sentences why ${candidate.name} and ${partner.name} matched with a compatibility score of ${match.finalScore}% after their agents went on a date.
 Highlight their key shared lifestyle or values, and 1 subtle difference or area to watch.

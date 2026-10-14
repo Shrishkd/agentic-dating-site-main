@@ -14,12 +14,19 @@ const STOPWORDS = new Set(
   )
 );
 
+// Remembers a readable word for each stem so explanations show "learning", not "learn".
+const DISPLAY = new Map<string, string>();
+
 function tokens(list: Array<string | undefined>): Set<string> {
   const out = new Set<string>();
   for (const item of list) {
     if (!item) continue;
     for (const w of item.toLowerCase().split(/[^a-z0-9]+/)) {
-      if (w.length >= 4 && !STOPWORDS.has(w)) out.add(w.replace(/(ing|ers|er|s)$/, ""));
+      if (w.length >= 4 && !STOPWORDS.has(w)) {
+        const stem = w.replace(/(ing|ers|er|s)$/, "");
+        if (!DISPLAY.has(stem)) DISPLAY.set(stem, w);
+        out.add(stem);
+      }
     }
   }
   return out;
@@ -55,7 +62,9 @@ export function prescreen(a: AgentProfileAnalysis, b: AgentProfileAnalysis): Pre
 
   const raw = 0.4 * hobbies.score + 0.35 * wants.score + 0.25 * values.score - 0.3 * breakers.score;
   const score = Math.max(20, Math.min(90, Math.round(45 + raw * 120)));
-  const shared = Array.from(new Set([...hobbies.shared, ...values.shared, ...wants.shared])).slice(0, 6);
+  const shared = Array.from(new Set([...hobbies.shared, ...values.shared, ...wants.shared]))
+    .slice(0, 6)
+    .map((stem) => DISPLAY.get(stem) || stem);
   return { score, shared };
 }
 

@@ -185,7 +185,8 @@ export class GeminiRateLimiter {
           err?.message?.includes("UNAVAILABLE");
 
         // Overloaded models give up after 2 retries so the caller can fall back to another model.
-        const maxRetries = isServiceUnavailable && !isRateLimitError ? 2 : 5;
+        const isDailyQuota = /PerDay/i.test(String(err?.message || ""));
+        const maxRetries = isDailyQuota ? 0 : isServiceUnavailable && !isRateLimitError ? 4 : 5;
         if ((isRateLimitError || isServiceUnavailable) && item.retries < maxRetries) {
           item.retries += 1;
           const rotated = this.rotateKey(err?.message || "Rate limit error");
@@ -199,9 +200,7 @@ export class GeminiRateLimiter {
           this.queue.unshift(item);
           await new Promise((res) => setTimeout(res, backoffDelay));
         } else if (isRateLimitError && item.retries >= 5) {
-          this.markQuotaExhausted(
-            "Quota exhausted across all retries. Add another key in GEMINI_API_KEYS or wait."
-          );
+          // Fail only this call; quotas are per model, so other models/calls can still succeed.
           item.reject(
             new Error(
               `Rate limit / Quota reached and all retries exhausted. Status: ${err?.message}`

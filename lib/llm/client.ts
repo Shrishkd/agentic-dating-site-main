@@ -70,7 +70,7 @@ export async function callGemini<T = any>(
   } catch (err: any) {
     const fallback = process.env.GEMINI_MODEL_FALLBACK || "gemini-3.5-flash-lite";
     const msg = String(err?.message || "");
-    const retryable = /503|UNAVAILABLE|overloaded|high demand|404|no longer available|not found/i.test(msg);
+    const retryable = /503|UNAVAILABLE|overloaded|high demand|404|no longer available|not found|PerDay/i.test(msg);
     if (retryable && model !== fallback) {
       console.warn(`[LLM Client] ${model} failed (${msg.slice(0, 80)}). Falling back to ${fallback}.`);
       return callGemini<T>(prompt, { ...options, model: fallback });
