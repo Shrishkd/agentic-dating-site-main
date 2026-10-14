@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapePerson } from "@/lib/scrapers/orchestrator";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 interface RouteParams {
   params: {
     id: string;

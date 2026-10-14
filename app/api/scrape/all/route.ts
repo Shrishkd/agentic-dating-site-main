@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrapeAllPeople } from "@/lib/scrapers/orchestrator";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/scrape/all - Trigger batch scraping for all pending/failed candidates
  * Body: { concurrency?: number, force?: boolean }

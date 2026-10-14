@@ -1,7 +1,8 @@
 import { prisma } from "../db";
 import { scrapeAllPeople } from "../scrapers/orchestrator";
 import { analyzeAllPeople } from "../agents/analyzer";
-import { runPairDate, generateUniquePairs } from "../dating/engine";
+import { runPairDate, buildScheduleFromDb } from "../dating/engine";
+import { runWithConcurrency } from "../dating/matchmaker";
 import { computeAllRankings } from "../ranking/engine";
 
 export interface PipelineProgressEvent {
@@ -17,7 +18,7 @@ export interface PipelineProgressEvent {
  * Runs the complete autonomous AgentMatch pipeline:
  * Step 1: Scrape All Candidates
  * Step 2: Generate AI Personas via Gemini
- * Step 3: Run Multi-Turn Speed Dates across all unique pairs
+ * Step 3: Agents pre-screen the pool, then go on multi-turn dates with their shortlist
  * Step 4: Compute Mutual Compatibility Rankings & Explanations
  */
 export async function runEntirePipeline(
@@ -77,40 +78,39 @@ export async function runEntirePipeline(
     });
   }
 
-  // Step 3: Speed Dating Engine
-  const analyzedCandidates = await prisma.person.findMany({
-    where: { status: "analyzed" },
-    select: { id: true, name: true },
-  });
-
-  const pairs = generateUniquePairs(analyzedCandidates.map((c) => c.id));
+  // Step 3: Agent pre-screen + dating
+  const schedule = await buildScheduleFromDb();
 
   if (onProgress) {
     onProgress({
       step: 3,
-      stepName: "Pairwise Speed Dating",
+      stepName: "Agents Dating",
       current: 0,
-      total: pairs.length,
-      message: `Running speed dates across ${pairs.length} unique pairs...`,
+      total: schedule.length,
+      message: `Agents pre-screened the pool and booked ${schedule.length} dates...`,
     });
   }
 
   let completedDatesCount = 0;
-  for (let i = 0; i < pairs.length; i++) {
-    const [pA, pB] = pairs[i];
-    await runPairDate(pA, pB);
+  const concurrency = parseInt(process.env.DATE_CONCURRENCY || "3", 10);
+  await runWithConcurrency(schedule, concurrency, async (pair) => {
+    try {
+      await runPairDate(pair.personAId, pair.personBId);
+    } catch (err) {
+      console.error("[Pipeline] Date failed:", pair, err);
+    }
     completedDatesCount++;
 
     if (onProgress) {
       onProgress({
         step: 3,
-        stepName: "Pairwise Speed Dating",
+        stepName: "Agents Dating",
         current: completedDatesCount,
-        total: pairs.length,
-        message: `Completed date ${completedDatesCount} of ${pairs.length}...`,
+        total: schedule.length,
+        message: `Completed date ${completedDatesCount} of ${schedule.length}...`,
       });
     }
-  }
+  });
 
   // Step 4: Mutual Rankings Calculation
   if (onProgress) {

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeAllPeople } from "@/lib/agents/analyzer";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 /**
  * POST /api/analyze/all - Batch analyze all scraped candidates
  * Body: { force?: boolean }

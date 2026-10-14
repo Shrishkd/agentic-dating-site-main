@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { validateLinkedInUrl, validateInstagramUrl, parseBulkInput } from "@/lib/validation";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/people - List all people ordered by creation time
  */

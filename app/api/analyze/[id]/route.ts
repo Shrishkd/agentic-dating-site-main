@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzePersonProfile } from "@/lib/agents/analyzer";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 interface RouteParams {
   params: {
     id: string;

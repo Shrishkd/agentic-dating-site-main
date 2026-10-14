@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { runPairDate, generateUniquePairs } from "@/lib/dating/engine";
+import { runPairDate, buildScheduleFromDb, buildScheduleForPerson } from "@/lib/dating/engine";
+import { computeAllRankings } from "@/lib/ranking/engine";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 /**
  * GET /api/dates/stream - Server-Sent Events (SSE) streaming live date sessions
@@ -15,20 +17,16 @@ export async function GET(req: NextRequest) {
   const idsParam = searchParams.get("ids");
   const allParam = searchParams.get("all");
 
-  let candidateIds: string[] = [];
+  const candidateIds = idsParam
+    ? idsParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
 
-  if (idsParam) {
-    candidateIds = idsParam.split(",").map((s) => s.trim()).filter(Boolean);
-  } else {
-    // Fetch all analyzed candidates
-    const candidates = await prisma.person.findMany({
-      where: { status: "analyzed" },
-      select: { id: true },
-    });
-    candidateIds = candidates.map((c) => c.id);
-  }
-
-  const pairs = generateUniquePairs(candidateIds);
+  // Each agent pre-screens the pool and books dates with its best candidates.
+  const personParam = searchParams.get("person");
+  const schedule = personParam
+    ? await buildScheduleForPerson(personParam, parseInt(searchParams.get("count") || "3", 10))
+    : await buildScheduleFromDb(candidateIds);
+  const pairs: Array<[string, string]> = schedule.map((d) => [d.personAId, d.personBId]);
 
   const responseStream = new TransformStream();
   const writer = responseStream.writable.getWriter();
@@ -49,7 +47,7 @@ export async function GET(req: NextRequest) {
     try {
       await sendEvent("init", {
         totalPairs: pairs.length,
-        candidateCount: candidateIds.length,
+        candidateCount: new Set(pairs.flat()).size,
       });
 
       let completedCount = 0;
@@ -68,6 +66,8 @@ export async function GET(req: NextRequest) {
           totalPairs: pairs.length,
           personA: pA,
           personB: pB,
+          prescreen: schedule[i].mutualPrescreen,
+          shared: schedule[i].shared,
         });
 
         // Run the 6-turn date
@@ -101,6 +101,12 @@ export async function GET(req: NextRequest) {
           dateSession: dateResult,
           progress: Math.round((completedCount / pairs.length) * 100),
         });
+      }
+
+      try {
+        await computeAllRankings();
+      } catch (rankErr) {
+        console.error("[Dates Stream] Ranking refresh failed:", rankErr);
       }
 
       await sendEvent("all_complete", {

@@ -20,6 +20,7 @@ export interface LinkedInScrapedData {
   certifications?: string[];
   profilePhotoUrl?: string;
   recentPosts?: string[];
+  extraSections?: string[];
   raw?: any;
 }
 
@@ -41,6 +42,8 @@ export interface InstagramScrapedData {
   followingCount?: number;
   isPrivate: boolean;
   profilePhotoUrl?: string;
+  externalUrl?: string;
+  category?: string;
   posts: InstagramPost[];
   raw?: any;
 }

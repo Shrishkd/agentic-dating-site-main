@@ -251,7 +251,7 @@ ${fetchedImages.length} Instagram post images attached showing activities, lifes
 
 Construct the complete dating persona according to the required schema.`;
 
-  const modelName = process.env.GEMINI_MODEL_ANALYSIS || "gemini-2.5-flash";
+  const modelName = process.env.GEMINI_MODEL_ANALYSIS || "gemini-3.8-flash";
 
   try {
     const llmResult = await callGeminiJson<AgentProfileAnalysis>(

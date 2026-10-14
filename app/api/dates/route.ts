@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { runPairDate } from "@/lib/dating/engine";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/dates - List all completed date sessions
  */

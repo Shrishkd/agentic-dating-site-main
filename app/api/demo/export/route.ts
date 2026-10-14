@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { prisma } from "@/lib/db";
-import { computeAllRankings } from "@/lib/ranking/engine";
+import { computeTopMutualPairs } from "@/lib/ranking/engine";
 
 /**
  * GET /api/demo/export - Returns demo snapshot JSON (or reads from file)
@@ -35,7 +35,7 @@ export async function GET() {
  */
 export async function POST() {
   try {
-    const [candidates, dates, { topMutualPairs }] = await Promise.all([
+    const [candidates, dates, topMutualPairs] = await Promise.all([
       prisma.person.findMany({
         where: { status: "analyzed" },
         include: { profile: true, rawData: true },
@@ -44,7 +44,7 @@ export async function POST() {
         where: { status: "completed" },
         include: { person_a: true, person_b: true },
       }),
-      computeAllRankings(),
+      computeTopMutualPairs(),
     ]);
 
     const formattedCandidates = candidates.map((c) => {

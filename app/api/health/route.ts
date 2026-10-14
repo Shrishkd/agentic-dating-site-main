@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
 import { prisma } from "@/lib/db";
 import { globalRateLimiter } from "@/lib/llm/rate-limiter";
 
@@ -24,8 +26,8 @@ export async function GET() {
       configured: false,
       totalKeys: 0,
       activeKeyIndex: 0,
-      modelAnalysis: process.env.GEMINI_MODEL_ANALYSIS || "gemini-2.5-flash",
-      modelDating: process.env.GEMINI_MODEL_DATING || "gemini-2.5-flash-lite",
+      modelAnalysis: process.env.GEMINI_MODEL_ANALYSIS || "gemini-3.8-flash",
+      modelDating: process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite",
       rateLimiter: globalRateLimiter.getStatus(),
     },
     apify: {

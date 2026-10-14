@@ -9,8 +9,8 @@ export async function scrapeInstagramProfile(
   profileUrl: string
 ): Promise<ScrapeResult> {
   try {
-    const cleanUrl = profileUrl.trim().replace(/\/+$/, "");
-    const username = cleanUrl.split("/").pop() || "";
+    const cleanUrl = profileUrl.trim().split("?")[0].replace(/\/+$/, "");
+    const username = (cleanUrl.split("/").pop() || "").replace(/^@/, "");
 
     const input = {
       usernames: [username],
@@ -116,8 +116,9 @@ export async function scrapeInstagramProfile(
         raw.avatar ||
         raw.pictureUrl ||
         undefined,
+      externalUrl: raw.externalUrl || undefined,
+      category: raw.businessCategoryName || undefined,
       posts,
-      raw,
     };
 
     return {

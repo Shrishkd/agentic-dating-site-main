@@ -1,0 +1,26 @@
+# 25 real people: Name, LinkedIn, public Instagram (all verified by live scrape)
+Codie Sanchez, https://www.linkedin.com/in/codiesanchez/, https://www.instagram.com/codiesanchez/
+Mel Robbins, https://www.linkedin.com/in/melrobbins/, https://www.instagram.com/melrobbins/
+Randi Zuckerberg, https://www.linkedin.com/in/randizuckerberg/, https://www.instagram.com/randizuckerberg/
+Arianna Huffington, https://www.linkedin.com/in/ariannahuffington/, https://www.instagram.com/ariannahuff/
+Vanessa Van Edwards, https://www.linkedin.com/in/vanessavanedwards/, https://www.instagram.com/vvanedwards/
+Marie Forleo, https://www.linkedin.com/in/marieforleo/, https://www.instagram.com/marieforleo/
+Sara Blakely, https://www.linkedin.com/in/sarablakely27/, https://www.instagram.com/sarablakely/
+Tiffany Aliche, https://www.linkedin.com/in/thebudgetnista/, https://www.instagram.com/thebudgetnista/
+Reshma Saujani, https://www.linkedin.com/in/reshma-saujani/, https://www.instagram.com/reshmasaujani/
+Bozoma Saint John, https://www.linkedin.com/in/bozoma-saint-john-0305441/, https://www.instagram.com/badassboz/
+Morgan DeBaun, https://www.linkedin.com/in/morgandebaun/, https://www.instagram.com/morgandebaun/
+Leila Hormozi, https://www.linkedin.com/in/leilahormozi/, https://www.instagram.com/leilahormozi/
+Ali Abdaal, https://www.linkedin.com/in/aliabdaal/, https://www.instagram.com/aliabdaal/
+Steven Bartlett, https://www.linkedin.com/in/stevenbartlett-123/, https://www.instagram.com/steven/
+Lewis Howes, https://www.linkedin.com/in/lewishowes/, https://www.instagram.com/lewishowes/
+Gary Vaynerchuk, https://www.linkedin.com/in/garyvaynerchuk/, https://www.instagram.com/garyvee/
+Simon Sinek, https://www.linkedin.com/in/simonsinek/, https://www.instagram.com/simonsinek/
+Jay Shetty, https://www.linkedin.com/in/shettyjay/, https://www.instagram.com/jayshetty/
+Sahil Bloom, https://www.linkedin.com/in/sahilbloom/, https://www.instagram.com/sahilbloom/
+Alexis Ohanian, https://www.linkedin.com/in/alexisohanian/, https://www.instagram.com/alexisohanian/
+Daniel Priestley, https://www.linkedin.com/in/danielpriestley/, https://www.instagram.com/danielpriestley/
+Chris Do, https://www.linkedin.com/in/thechrisdo/, https://www.instagram.com/thechrisdo/
+Brendon Burchard, https://www.linkedin.com/in/brendonburchard/, https://www.instagram.com/brendonburchard/
+Ryan Holiday, https://www.linkedin.com/in/ryanholiday/, https://www.instagram.com/ryanholiday/
+Alex Hormozi, https://www.linkedin.com/in/alexhormozi/, https://www.instagram.com/hormozi/

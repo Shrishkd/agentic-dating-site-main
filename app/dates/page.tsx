@@ -82,6 +82,8 @@ export default function DatingFloorPage() {
 
   useEffect(() => {
     fetchInitialData();
+    const solo = new URLSearchParams(window.location.search).get("person");
+    if (solo) startDatingStream(undefined, solo);
     return () => {
       stopDatingStream();
     };
@@ -116,7 +118,7 @@ export default function DatingFloorPage() {
     }
   }
 
-  function startDatingStream(candidateIds?: string[]) {
+  function startDatingStream(candidateIds?: string[], soloPersonId?: string) {
     stopDatingStream();
     setIsDatingRunning(true);
     setActiveTurns([]);
@@ -125,7 +127,9 @@ export default function DatingFloorPage() {
     setStreamNotice(null);
 
     let url = "/api/dates/stream";
-    if (candidateIds && candidateIds.length > 0) {
+    if (soloPersonId) {
+      url += `?person=${encodeURIComponent(soloPersonId)}&count=3`;
+    } else if (candidateIds && candidateIds.length > 0) {
       url += `?ids=${encodeURIComponent(candidateIds.join(","))}`;
     } else {
       url += "?all=true";

@@ -190,6 +190,24 @@ export default function PersonProfilePage() {
         </Link>
 
         <div className="flex items-center gap-2">
+          {profileData && (
+            <>
+              <Link
+                href={`/dates?person=${personId}`}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-2 transition-all"
+              >
+                <Heart className="w-3.5 h-3.5" />
+                <span>Send My Agent on Dates</span>
+              </Link>
+              <Link
+                href={`/rankings?personId=${personId}`}
+                className="px-4 py-2 rounded-xl border border-gray-700 hover:border-gray-500 text-gray-200 text-xs font-semibold flex items-center gap-2 transition-all"
+              >
+                <Target className="w-3.5 h-3.5" />
+                <span>My Rankings</span>
+              </Link>
+            </>
+          )}
           <button
             onClick={() => handleAnalyze(true)}
             disabled={analyzing}

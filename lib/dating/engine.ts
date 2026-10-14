@@ -8,6 +8,7 @@ import {
   DateSessionData,
 } from "./types";
 import { AgentProfileAnalysis } from "../agents/types";
+import { buildDatingSchedule, getDatesPerPerson, prescreen, ScheduledDate } from "./matchmaker";
 
 const VENUE_SCHEMA = {
   type: "OBJECT",
@@ -109,7 +110,7 @@ export async function chooseDateVenue(
   candidateA: PersonaDetails,
   candidateB: PersonaDetails
 ): Promise<DateVenueSelection> {
-  const model = process.env.GEMINI_MODEL_DATING || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite";
 
   const prompt = `Select an ideal first date venue for two candidates based on their profiles:
 
@@ -153,7 +154,7 @@ export async function runDateTurn(
   venue: DateVenueSelection,
   turnNumber: number
 ): Promise<ConversationTurn> {
-  const model = process.env.GEMINI_MODEL_DATING || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite";
   const systemInstruction = buildAgentPersonaPrompt(speaker);
 
   const formattedHistory =
@@ -213,7 +214,7 @@ export async function scoreDateFromPersona(
   transcript: ConversationTurn[],
   venue: DateVenueSelection
 ): Promise<DateScorecard> {
-  const model = process.env.GEMINI_MODEL_DATING || "gemini-2.5-flash-lite";
+  const model = process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite";
 
   const systemInstruction = `You are evaluating a completed first date strictly from the perspective and standards of ${evaluator.name}.
 Your personality profile:
@@ -442,4 +443,89 @@ export function generateUniquePairs(
     }
   }
   return pairs;
+}
+
+/**
+ * Agent pre-screen + schedule: loads analyzed candidates (optionally a subset) and returns
+ * the dates the agents chose to go on. Small groups (<= DATES_PER_PERSON+1) date everyone.
+ */
+export async function buildScheduleFromDb(
+  personIds?: string[]
+): Promise<ScheduledDate[]> {
+  const people = await prisma.person.findMany({
+    where: personIds && personIds.length > 0
+      ? { id: { in: personIds }, profile: { isNot: null } }
+      : { status: "analyzed", profile: { isNot: null } },
+    include: { profile: true },
+  });
+
+  const parsed = people.map((p) => ({
+    id: p.id,
+    profile: {
+      summary: p.profile!.summary,
+      needs: safeJson(p.profile!.needs),
+      hobbies: safeJson(p.profile!.hobbies),
+      interests: safeJson(p.profile!.interests),
+      values: safeJson(p.profile!.values),
+      personality_traits: safeJson(p.profile!.personality_traits),
+      communication_style: p.profile!.communication_style,
+      lifestyle: p.profile!.lifestyle,
+      looking_for: p.profile!.looking_for,
+      deal_breakers: safeJson(p.profile!.deal_breakers),
+      evidence: safeJson(p.profile!.evidence),
+    } as AgentProfileAnalysis,
+  }));
+
+  return buildDatingSchedule(parsed, getDatesPerPerson());
+}
+
+function safeJson(s: string | null | undefined): any[] {
+  try {
+    const v = JSON.parse(s || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A single agent's dating run: the person's agent pre-screens everyone and dates its top picks.
+ */
+export async function buildScheduleForPerson(personId: string, count = 3): Promise<ScheduledDate[]> {
+  const people = await prisma.person.findMany({
+    where: { status: "analyzed", profile: { isNot: null } },
+    include: { profile: true },
+  });
+  const me = people.find((p) => p.id === personId);
+  if (!me) return [];
+  const toProfile = (p: (typeof people)[number]) =>
+    ({
+      summary: p.profile!.summary,
+      needs: safeJson(p.profile!.needs),
+      hobbies: safeJson(p.profile!.hobbies),
+      interests: safeJson(p.profile!.interests),
+      values: safeJson(p.profile!.values),
+      personality_traits: safeJson(p.profile!.personality_traits),
+      communication_style: p.profile!.communication_style,
+      lifestyle: p.profile!.lifestyle,
+      looking_for: p.profile!.looking_for,
+      deal_breakers: safeJson(p.profile!.deal_breakers),
+      evidence: safeJson(p.profile!.evidence),
+    }) as AgentProfileAnalysis;
+  const mine = toProfile(me);
+  return people
+    .filter((p) => p.id !== personId)
+    .map((p) => {
+      const theirs = toProfile(p);
+      const ab = prescreen(mine, theirs);
+      const ba = prescreen(theirs, mine);
+      return {
+        personAId: personId,
+        personBId: p.id,
+        mutualPrescreen: Math.round((ab.score + ba.score) / 2),
+        shared: Array.from(new Set([...ab.shared, ...ba.shared])).slice(0, 6),
+      };
+    })
+    .sort((a, b) => b.mutualPrescreen - a.mutualPrescreen)
+    .slice(0, count);
 }

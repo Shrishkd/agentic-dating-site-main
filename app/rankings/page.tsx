@@ -39,7 +39,8 @@ export default function RankingsPage() {
   const [recalculating, setRecalculating] = useState(false);
 
   useEffect(() => {
-    fetchRankingsData();
+    const initial = new URLSearchParams(window.location.search).get("personId") || undefined;
+    fetchRankingsData(initial);
   }, []);
 
   async function fetchRankingsData(personId?: string) {
@@ -316,6 +317,8 @@ export default function RankingsPage() {
                                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                                     : item.fitCategory === "one_sided"
                                     ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
+                                    : item.fitCategory === "not_dated"
+                                    ? "bg-gray-500/10 text-gray-400 border-gray-500/20"
                                     : "bg-amber-500/10 text-amber-400 border-amber-500/20"
                                 }`}
                               >
@@ -325,11 +328,15 @@ export default function RankingsPage() {
                                   ? "High Compatibility"
                                   : item.fitCategory === "one_sided"
                                   ? "One-Sided Interest"
+                                  : item.fitCategory === "not_dated"
+                                  ? "Not dated · agent pre-screen"
+                                  : item.fitCategory === "low_fit"
+                                  ? "Low Alignment"
                                   : "Good Potential"}
                               </span>
 
                               <span className="text-[10px] text-gray-400">
-                                Gave: <strong className="text-rose-300">{Math.round(item.scoreGiven)}</strong> &bull; Received: <strong className="text-pink-300">{Math.round(item.scoreReceived)}</strong>
+                                {item.fitCategory === "not_dated" ? "Est. " : ""}Gave: <strong className="text-rose-300">{Math.round(item.scoreGiven)}</strong> &bull; Received: <strong className="text-pink-300">{Math.round(item.scoreReceived)}</strong>
                               </span>
                             </div>
                           </div>

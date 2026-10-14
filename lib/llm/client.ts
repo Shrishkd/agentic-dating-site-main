@@ -33,7 +33,7 @@ export async function callGemini<T = any>(
   const model =
     options.model ||
     process.env.GEMINI_MODEL_ANALYSIS ||
-    "gemini-2.5-flash";
+    "gemini-3.8-flash";
 
   // Check database cache first (unless skipCache is requested)
   const inputHash = computeInputHash(prompt, { ...options, model });
@@ -64,7 +64,27 @@ export async function callGemini<T = any>(
     }
   }
 
-  // Schedule through global rate limiter queue
+  // Schedule through global rate limiter queue; fall back to a lighter model if this one is overloaded or retired.
+  try {
+    return await scheduleCall<T>(prompt, options, model, inputHash);
+  } catch (err: any) {
+    const fallback = process.env.GEMINI_MODEL_FALLBACK || "gemini-3.5-flash-lite";
+    const msg = String(err?.message || "");
+    const retryable = /503|UNAVAILABLE|overloaded|high demand|404|no longer available|not found/i.test(msg);
+    if (retryable && model !== fallback) {
+      console.warn(`[LLM Client] ${model} failed (${msg.slice(0, 80)}). Falling back to ${fallback}.`);
+      return callGemini<T>(prompt, { ...options, model: fallback });
+    }
+    throw err;
+  }
+}
+
+async function scheduleCall<T>(
+  prompt: string,
+  options: LlmCallOptions,
+  model: string,
+  inputHash: string
+): Promise<LlmResponse<T>> {
   return globalRateLimiter.schedule(async () => {
     const apiKey = globalRateLimiter.getActiveApiKey();
     const keyIndex = globalRateLimiter.getActiveKeyIndex();

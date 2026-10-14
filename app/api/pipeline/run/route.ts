@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { runEntirePipeline } from "@/lib/pipeline/runner";
 
+export const maxDuration = 300;
+
 export const dynamic = "force-dynamic";
 
 /**

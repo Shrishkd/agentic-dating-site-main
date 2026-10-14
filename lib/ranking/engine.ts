@@ -1,5 +1,7 @@
 import { prisma } from "../db";
 import { callGemini } from "../llm/client";
+import { prescreen } from "../dating/matchmaker";
+import { AgentProfileAnalysis } from "../agents/types";
 
 export interface ComputedRankItem {
   rankedPersonId: string;
@@ -9,7 +11,7 @@ export interface ComputedRankItem {
   scoreGiven: number;
   scoreReceived: number;
   finalScore: number;
-  fitCategory: "mutual_spark" | "high_fit" | "good_potential" | "one_sided" | "low_fit";
+  fitCategory: "mutual_spark" | "high_fit" | "good_potential" | "one_sided" | "low_fit" | "not_dated";
   explanation: string;
   dateSessionId: string;
 }
@@ -64,159 +66,183 @@ export function getFitCategory(
   return "low_fit";
 }
 
+export function parseProfile(p: any): AgentProfileAnalysis | null {
+  if (!p) return null;
+  const arr = (v: string) => {
+    try {
+      const x = JSON.parse(v || "[]");
+      return Array.isArray(x) ? x : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    summary: p.summary,
+    needs: arr(p.needs),
+    hobbies: arr(p.hobbies),
+    interests: arr(p.interests),
+    values: arr(p.values),
+    personality_traits: arr(p.personality_traits),
+    communication_style: p.communication_style,
+    lifestyle: p.lifestyle,
+    looking_for: p.looking_for,
+    deal_breakers: arr(p.deal_breakers),
+    evidence: arr(p.evidence),
+  } as AgentProfileAnalysis;
+}
+
 /**
- * Computes and persists rankings for all candidates who have completed dates.
+ * Top mutual pairs across all completed dates (read-only, no LLM calls).
+ */
+export async function computeTopMutualPairs(limit = 10): Promise<TopMutualPair[]> {
+  const dates = await prisma.dateSession.findMany({
+    where: { status: "completed" },
+    include: { person_a: { include: { rawData: true } }, person_b: { include: { rawData: true } } },
+  });
+
+  const seen = new Set<string>();
+  const pairs: TopMutualPair[] = [];
+  for (const d of dates) {
+    const key = [d.person_a_id, d.person_b_id].sort().join("-");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const scoreA = d.score_a_to_b ?? 70;
+    const scoreB = d.score_b_to_a ?? 70;
+    pairs.push({
+      personAId: d.person_a.id,
+      personAName: d.person_a.name,
+      personAPhoto: extractPhotoUrl(d.person_a.rawData),
+      personBId: d.person_b.id,
+      personBName: d.person_b.name,
+      personBPhoto: extractPhotoUrl(d.person_b.rawData),
+      scoreAToB: scoreA,
+      scoreBToA: scoreB,
+      mutualScore: parseFloat(((scoreA + scoreB) / 2).toFixed(1)),
+      dateSessionId: d.id,
+    });
+  }
+  pairs.sort((a, b) => b.mutualScore - a.mutualScore);
+  return pairs.slice(0, limit);
+}
+
+/**
+ * Computes and persists a full ranking for every analyzed candidate:
+ * people they actually dated come first (ranked by the agents' scorecards),
+ * followed by everyone else ranked by the agent's pre-screen estimate.
  */
 export async function computeAllRankings(): Promise<{
   totalRanked: number;
   topMutualPairs: TopMutualPair[];
 }> {
-  // Fetch all candidates and completed dates
   const [candidates, dates] = await Promise.all([
     prisma.person.findMany({
-      include: { profile: true, rawData: true },
+      where: { status: "analyzed" },
+      include: { profile: true },
     }),
     prisma.dateSession.findMany({
       where: { status: "completed" },
-      include: { person_a: true, person_b: true },
     }),
   ]);
 
-  if (candidates.length === 0 || dates.length === 0) {
+  if (candidates.length < 2) {
     return { totalRanked: 0, topMutualPairs: [] };
   }
 
-  // Clear existing rankings table for clean refresh
-  await prisma.ranking.deleteMany();
-
   const candidateMap = new Map(candidates.map((c) => [c.id, c]));
-  let totalRanked = 0;
+  const profiles = new Map(candidates.map((c) => [c.id, parseProfile(c.profile)]));
+  const rows: Array<{
+    person_id: string;
+    ranked_person_id: string;
+    rank: number;
+    final_score: number;
+    explanation: string;
+  }> = [];
 
   for (const candidate of candidates) {
-    // Find all dates involving this candidate
-    const relevantDates = dates.filter(
-      (d) => d.person_a_id === candidate.id || d.person_b_id === candidate.id
-    );
+    const dated: Array<{ partnerId: string; scoreGiven: number; scoreReceived: number; finalScore: number; reasonGiven: string }> = [];
+    const datedIds = new Set<string>();
 
-    if (relevantDates.length === 0) continue;
-
-    const candidateMatches: Array<{
-      partnerId: string;
-      scoreGiven: number;
-      scoreReceived: number;
-      finalScore: number;
-      dateSessionId: string;
-      reasonGiven: string;
-      reasonReceived: string;
-    }> = [];
-
-    for (const d of relevantDates) {
-      const isCandidateA = d.person_a_id === candidate.id;
-      const partnerId = isCandidateA ? d.person_b_id : d.person_a_id;
-      const scoreGiven = isCandidateA ? d.score_a_to_b ?? 70 : d.score_b_to_a ?? 70;
-      const scoreReceived = isCandidateA ? d.score_b_to_a ?? 70 : d.score_a_to_b ?? 70;
-      const reasonGiven = isCandidateA ? d.reason_a || "" : d.reason_b || "";
-      const reasonReceived = isCandidateA ? d.reason_b || "" : d.reason_a || "";
-
-      // Weighted formula: 0.6 * given + 0.4 * received
-      const finalScore = parseFloat((0.6 * scoreGiven + 0.4 * scoreReceived).toFixed(1));
-
-      candidateMatches.push({
+    for (const d of dates) {
+      if (d.person_a_id !== candidate.id && d.person_b_id !== candidate.id) continue;
+      const isA = d.person_a_id === candidate.id;
+      const partnerId = isA ? d.person_b_id : d.person_a_id;
+      if (datedIds.has(partnerId) || !candidateMap.has(partnerId)) continue;
+      datedIds.add(partnerId);
+      const scoreGiven = (isA ? d.score_a_to_b : d.score_b_to_a) ?? 70;
+      const scoreReceived = (isA ? d.score_b_to_a : d.score_a_to_b) ?? 70;
+      dated.push({
         partnerId,
         scoreGiven,
         scoreReceived,
-        finalScore,
-        dateSessionId: d.id,
-        reasonGiven,
-        reasonReceived,
+        // Weighted formula: 0.6 * how much they liked the match + 0.4 * how much the match liked them
+        finalScore: parseFloat((0.6 * scoreGiven + 0.4 * scoreReceived).toFixed(1)),
+        reasonGiven: (isA ? d.reason_a : d.reason_b) || "",
       });
     }
+    dated.sort((a, b) => b.finalScore - a.finalScore);
 
-    // Sort by finalScore in descending order
-    candidateMatches.sort((a, b) => b.finalScore - a.finalScore);
+    const undated: Array<{ partnerId: string; finalScore: number; shared: string[] }> = [];
+    const myProfile = profiles.get(candidate.id);
+    for (const other of candidates) {
+      if (other.id === candidate.id || datedIds.has(other.id)) continue;
+      const theirProfile = profiles.get(other.id);
+      if (!myProfile || !theirProfile) continue;
+      const ab = prescreen(myProfile, theirProfile);
+      const ba = prescreen(theirProfile, myProfile);
+      undated.push({
+        partnerId: other.id,
+        finalScore: parseFloat((0.6 * ab.score + 0.4 * ba.score).toFixed(1)),
+        shared: Array.from(new Set([...ab.shared, ...ba.shared])).slice(0, 4),
+      });
+    }
+    undated.sort((a, b) => b.finalScore - a.finalScore);
 
-    // Save rankings to DB
-    for (let rankIndex = 0; rankIndex < candidateMatches.length; rankIndex++) {
-      const match = candidateMatches[rankIndex];
-      const rank = rankIndex + 1;
-      const partner = candidateMap.get(match.partnerId);
+    let rank = 0;
+    for (const match of dated) {
+      rank++;
+      const partner = candidateMap.get(match.partnerId)!;
+      let explanation = match.reasonGiven
+        ? `${candidate.name}'s agent after the date: ${match.reasonGiven}`
+        : `${candidate.name} scored ${partner.name} ${Math.round(match.scoreGiven)}/100; ${partner.name} scored back ${Math.round(match.scoreReceived)}/100.`;
 
-      let explanation = `${candidate.name} scored ${partner?.name || "them"} ${Math.round(
-        match.scoreGiven
-      )}/100, while ${partner?.name || "they"} rated ${candidate.name} ${Math.round(
-        match.scoreReceived
-      )}/100. Overall compatibility: ${match.finalScore}%.`;
-
-      // Generate Gemini explanation for top 3 matches
-      if (rank <= 3 && candidate.profile && partner?.profile) {
+      // Gemini synthesis for the top 3 dated matches
+      if (rank <= 3 && candidate.profile && partner.profile) {
         try {
-          const prompt = `Explain in 2 concise sentences why ${candidate.name} and ${partner.name} matched with a compatibility score of ${match.finalScore}%.
+          const prompt = `Explain in 2 concise sentences why ${candidate.name} and ${partner.name} matched with a compatibility score of ${match.finalScore}% after their agents went on a date.
 Highlight their key shared lifestyle or values, and 1 subtle difference or area to watch.
 
+${candidate.name}'s agent's verdict: ${match.reasonGiven}
 ${candidate.name}'s Profile: ${candidate.profile.summary} | Hobbies: ${candidate.profile.hobbies} | Values: ${candidate.profile.values}
 ${partner.name}'s Profile: ${partner.profile.summary} | Hobbies: ${partner.profile.hobbies} | Values: ${partner.profile.values}`;
 
           const res = await callGemini(prompt, {
-            model: process.env.GEMINI_MODEL_DATING || "gemini-2.5-flash-lite",
+            model: process.env.GEMINI_MODEL_DATING || "gemini-3.5-flash-lite",
             temperature: 0.4,
           });
           if (res.text && res.text.trim().length > 10) {
             explanation = res.text.trim();
           }
-        } catch (llmErr) {
-          // Fallback to formatted explanation
+        } catch {
+          // keep the agent's own verdict
         }
       }
 
-      await prisma.ranking.create({
-        data: {
-          person_id: candidate.id,
-          ranked_person_id: match.partnerId,
-          rank,
-          final_score: match.finalScore,
-          explanation,
-        },
-      });
+      rows.push({ person_id: candidate.id, ranked_person_id: match.partnerId, rank, final_score: match.finalScore, explanation });
+    }
 
-      totalRanked++;
+    for (const match of undated) {
+      rank++;
+      const partner = candidateMap.get(match.partnerId)!;
+      const explanation = `Not dated yet. ${candidate.name}'s agent pre-screened ${partner.name}${
+        match.shared.length ? ` and found overlap in: ${match.shared.join(", ")}` : " and found little overlap"
+      }. Estimate only; a real date would replace this score.`;
+      rows.push({ person_id: candidate.id, ranked_person_id: match.partnerId, rank, final_score: match.finalScore, explanation });
     }
   }
 
-  // Calculate top mutual pairs
-  const topMutualPairs: TopMutualPair[] = [];
-  const processedPairKeys = new Set<string>();
+  await prisma.$transaction([prisma.ranking.deleteMany(), prisma.ranking.createMany({ data: rows })]);
 
-  for (const d of dates) {
-    const pairKey = [d.person_a_id, d.person_b_id].sort().join("-");
-    if (processedPairKeys.has(pairKey)) continue;
-    processedPairKeys.add(pairKey);
-
-    const scoreA = d.score_a_to_b ?? 70;
-    const scoreB = d.score_b_to_a ?? 70;
-    const mutualScore = parseFloat(((scoreA + scoreB) / 2).toFixed(1));
-
-    const pA = candidateMap.get(d.person_a_id);
-    const pB = candidateMap.get(d.person_b_id);
-
-    if (pA && pB) {
-      topMutualPairs.push({
-        personAId: pA.id,
-        personAName: pA.name,
-        personAPhoto: extractPhotoUrl(pA.rawData),
-        personBId: pB.id,
-        personBName: pB.name,
-        personBPhoto: extractPhotoUrl(pB.rawData),
-        scoreAToB: scoreA,
-        scoreBToA: scoreB,
-        mutualScore,
-        dateSessionId: d.id,
-      });
-    }
-  }
-
-  topMutualPairs.sort((a, b) => b.mutualScore - a.mutualScore);
-
-  return { totalRanked, topMutualPairs: topMutualPairs.slice(0, 10) };
+  return { totalRanked: rows.length, topMutualPairs: await computeTopMutualPairs() };
 }
 
 /**

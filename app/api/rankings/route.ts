@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { computeAllRankings, getHeatmapMatrix, getFitCategory } from "@/lib/ranking/engine";
+import { computeAllRankings, computeTopMutualPairs, getHeatmapMatrix, getFitCategory, parseProfile } from "@/lib/ranking/engine";
+import { prescreen } from "@/lib/dating/matchmaker";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 function extractPhoto(rawData: any[]): string | undefined {
   if (!rawData) return undefined;
@@ -45,8 +49,9 @@ export async function GET(req: NextRequest) {
         orderBy: { rank: "asc" },
         include: {
           ranked_person: {
-            include: { rawData: true },
+            include: { rawData: true, profile: true },
           },
+          person: { include: { profile: true } },
         },
       });
 
@@ -65,9 +70,18 @@ export async function GET(req: NextRequest) {
             (date.person_a_id === r.ranked_person_id && date.person_b_id === targetPersonId)
         );
 
-        const isA = d?.person_a_id === targetPersonId;
-        const scoreGiven = isA ? d?.score_a_to_b ?? 70 : d?.score_b_to_a ?? 70;
-        const scoreReceived = isA ? d?.score_b_to_a ?? 70 : d?.score_a_to_b ?? 70;
+        let scoreGiven: number;
+        let scoreReceived: number;
+        if (d) {
+          const isA = d.person_a_id === targetPersonId;
+          scoreGiven = (isA ? d.score_a_to_b : d.score_b_to_a) ?? 70;
+          scoreReceived = (isA ? d.score_b_to_a : d.score_a_to_b) ?? 70;
+        } else {
+          const me = parseProfile(r.person.profile);
+          const them = parseProfile(r.ranked_person.profile);
+          scoreGiven = me && them ? prescreen(me, them).score : r.final_score;
+          scoreReceived = me && them ? prescreen(them, me).score : r.final_score;
+        }
 
         return {
           id: r.id,
@@ -78,7 +92,7 @@ export async function GET(req: NextRequest) {
           finalScore: r.final_score,
           scoreGiven,
           scoreReceived,
-          fitCategory: getFitCategory(scoreGiven, scoreReceived, r.final_score),
+          fitCategory: d ? getFitCategory(scoreGiven, scoreReceived, r.final_score) : "not_dated",
           explanation: r.explanation,
           dateSessionId: d?.id || "",
         };
@@ -86,9 +100,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Get Heatmap Matrix and Top Mutual Pairs
-    const [{ candidates: heatmapCandidates, matrix }, { topMutualPairs }] = await Promise.all([
+    const [{ candidates: heatmapCandidates, matrix }, topMutualPairs] = await Promise.all([
       getHeatmapMatrix(),
-      computeAllRankings(),
+      computeTopMutualPairs(),
     ]);
 
     return NextResponse.json({
