@@ -8,11 +8,13 @@
 
 Modern dating is plagued by swipe fatigue, superficial bios, and mismatched conversations. **AgentMatch** reimagines matchmaking by deploying **autonomous AI agents** representing real people:
 
-1. **Intake**: Provide public LinkedIn and Instagram profile URLs.
-2. **Deep Persona Synthesis**: Google Gemini multimodally analyzes career trajectory, communication style, humor, aesthetic tastes, and deal-breakers with exact evidence citations.
-3. **Multi-Turn Dating Floor**: Agents meet in tailored, dynamically selected venues and converse across 6 authentic turns.
-4. **Asymmetric Scoring & Matrix**: Each agent grades the interaction independently across 5 dimensions (0–100). The system computes weighted mutual compatibility rankings ($0.6 \times \text{Gave} + 0.4 \times \text{Received}$) and generates a 2D pairwise heatmap.
-5. **Zero-API Demo Showcase**: A pre-computed showcase mode allows instant evaluation with zero API dependencies.
+1. **Intake**: Paste a public LinkedIn URL and a public Instagram URL per person (single form or bulk paste). The two links are the *only* sources.
+2. **Scrape**: Apify cloud actors pull the public LinkedIn profile (headline, about, experience, education + activities, volunteering, causes, honors, recommendations) and the public Instagram profile (bio, 12 latest posts: captions, hashtags, locations, tagged accounts, images).
+3. **Agent reads its person**: Gemini (multimodal, sees the Instagram images) builds the persona — needs, hobbies, interests, values, personality traits, communication style, lifestyle, what they're looking for, deal-breakers — and every claim carries an evidence citation back to LinkedIn or Instagram.
+4. **Agents pre-screen**: each agent scans the whole pool against its person's needs/values/hobbies/deal-breakers and books dates with its best fits (`DATES_PER_PERSON`, default 4; every agent gets dates).
+5. **Agents date**: the two agents meet at a venue picked for both, then talk for 6 alternating turns. Each agent speaks as its person, references real facts from their profiles, and has a mission: check its person's needs are met and probe a deal-breaker.
+6. **Private scorecards**: after the date each agent scores the other independently (shared interests, values, lifestyle, chemistry, needs met, deal-breaker check, overall 0–100 + reasoning).
+7. **Ranking**: for every person, everyone else is ranked. People they dated come first, by $0.6 \times \text{score they gave} + 0.4 \times \text{score they received}$; the rest follow with the agent's pre-screen estimate, clearly labelled "not dated".
 
 ---
 
@@ -59,8 +61,9 @@ flowchart TD
 
 ### 1. Public Scraping Pipeline (Apify)
 - **Cookie-less Extraction**: Extracts strictly public data without authenticating user sessions or storing credentials.
-- **LinkedIn Worker**: Scrapes work history, skills, educational background, summary bio, and certifications.
-- **Instagram Worker**: Scrapes recent public captions, tagged interests, bio, and post counts. Handles private accounts gracefully by setting `instagram_private: true` and relying on LinkedIn evidence.
+- **LinkedIn Worker**: `harvestapi/linkedin-profile-scraper` (no cookies; fallback `dev_fusion/Linkedin-Profile-Scraper`, override with `LINKEDIN_ACTOR`). Work history, skills, education + activities, volunteering, causes, honors, recommendations.
+- **Instagram Worker**: `apify/instagram-profile-scraper`. Bio, category, latest 12 posts with captions, hashtags, locations, tagged users and image URLs (images are sent to Gemini).
+- **Private Instagram**: detected and flagged (`instagram_private`) — only public profiles are analyzed.
 - **Deduplication & Caching**: Scraped raw payloads are stored in the `raw_data` SQLite/PostgreSQL table to prevent redundant scraping.
 
 ### 2. Rate-Limited LLM Engine (`lib/llm/`)
@@ -68,8 +71,9 @@ flowchart TD
 - **SHA-256 DB Cache**: Prompts and system instructions are hashed; responses are saved to the `llm_cache` table to guarantee instant responses on cache hits and zero cost for repeated runs.
 - **Key Rotation**: Supports comma-delimited `GEMINI_API_KEY=key1,key2,key3` for round-robin load distribution.
 - **Model Flexibility**:
-  - `GEMINI_MODEL_ANALYSIS` (default: `gemini-2.5-flash`): Strict JSON extraction for structured personas.
-  - `GEMINI_MODEL_DATING` (default: `gemini-2.5-flash`): Creative conversational dialogue and bilateral scoring.
+  - `GEMINI_MODEL_ANALYSIS` (default: `gemini-3.8-flash`): Strict JSON extraction for structured personas.
+  - `GEMINI_MODEL_DATING` (default: `gemini-3.5-flash-lite`): Conversational dialogue and bilateral scoring.
+  - `GEMINI_MODEL_FALLBACK` (default: `gemini-3.5-flash-lite`): used automatically if a model is overloaded or retired.
 
 ### 3. Dating Engine & Compatibility Formula
 Each date executes across 6 consecutive turns:
@@ -118,16 +122,17 @@ $$\text{Composite Score} = 0.6 \times (\text{Score Given}) + 0.4 \times (\text{S
 3. **Configure Environment Variables**:
    Create a `.env.local` file in the root directory:
    ```env
-   # Database (SQLite default or PostgreSQL)
-   DATABASE_URL="file:./dev.db"
+   # Database (PostgreSQL, e.g. Supabase)
+   DATABASE_URL="postgresql://...:6543/postgres?pgbouncer=true"
+   DIRECT_URL="postgresql://...:5432/postgres"
 
    # Google Gemini LLM
    GEMINI_API_KEY="your_gemini_api_key_here"
-   GEMINI_MODEL_ANALYSIS="gemini-2.5-flash"
-   GEMINI_MODEL_DATING="gemini-2.5-flash"
+   GEMINI_MODEL_ANALYSIS="gemini-3.8-flash"
+   GEMINI_MODEL_DATING="gemini-3.5-flash-lite"
 
    # Apify Scraper
-   APIFY_API_TOKEN="your_apify_api_token_here"
+   APIFY_TOKEN="your_apify_api_token_here"
 
    # App Config
    NEXT_PUBLIC_APP_URL="http://localhost:3000"
@@ -146,19 +151,11 @@ $$\text{Composite Score} = 0.6 \times (\text{Score Given}) + 0.4 \times (\text{S
 
 ---
 
-## ⚡ Instant Showcase Demo Mode
+## ⚡ The 25-person example
 
-Want to test AgentMatch immediately without Apify credits or API keys?
+`data/people-25.txt` holds the 25 real people used in the demo (name, LinkedIn, public Instagram). Paste it into **People → Bulk** and press **Run full pipeline**, or open `/demo` to view the finished, exported run (`data/demo-snapshot.json`) without typing anything.
 
-Navigate to:
-```
-http://localhost:3000/demo
-```
-The demo mode reads from `data/demo-snapshot.json` and renders:
-- 4 pre-analyzed candidate personas with trait sliders and evidence citations.
-- 6-turn speed date replays with dynamic venues and scorecards.
-- Mutual compatibility rankings and 2D pairwise heatmap matrix.
-- A **"Restore to Live App"** button that hydrates your local SQLite database in one click.
+To try your own person: add their two links on **People**, click **Scrape** then **Analyze**, open their profile and press **Send My Agent on Dates** — their agent dates its top 3 picks live and the rankings refresh.
 
 ---
 
@@ -173,7 +170,7 @@ The demo mode reads from `data/demo-snapshot.json` and renders:
 | `/api/analyze/[id]` | `POST` | Run Gemini persona synthesis on scraped data |
 | `/api/dates` | `GET`, `POST` | List completed dates or trigger a new speed date |
 | `/api/dates/[id]` | `GET` | Get full date transcript and scorecards |
-| `/api/dates/stream` | `GET` | SSE stream for real-time turn-by-turn date simulation |
+| `/api/dates/stream` | `GET` | SSE live dates. `?person=<id>` = that agent dates its top 3; `?ids=a,b,c` = a test group; none = full agent schedule |
 | `/api/rankings` | `GET`, `POST` | Get or recalculate compatibility matrix and rankings |
 | `/api/pipeline/run` | `GET` | SSE stream running end-to-end pipeline (Scrape &rarr; Analyze &rarr; Date &rarr; Rank) |
 | `/api/demo/export` | `GET` | Export live database to `data/demo-snapshot.json` |

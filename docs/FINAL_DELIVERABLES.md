@@ -4,8 +4,7 @@
 
 ## 1. 200-Character Project Description
 
-> **AgentMatch uses autonomous AI agents to analyze public LinkedIn & Instagram profiles, date on behalf of real people in dynamic venues, and generate weighted mutual compatibility rankings.**  
-> *(194 characters)*
+> **AgentMatch: AI agents read a person's public LinkedIn + Instagram, build an evidence-backed persona, go on multi-turn dates with other agents on their behalf, then rank who fits each person best.**
 
 ---
 
@@ -64,28 +63,9 @@
 
 ---
 
-## 3. Technical Scraping Stack Summary
+## 3. Technical Scraping Stack Summary (≤500 chars)
 
-### Architecture & Microservices
-AgentMatch implements a **secure, cookie-less scraping pipeline** utilizing **Apify cloud actors** and a local deduplication/caching layer:
-
-1. **Cookie-less Public Scraper Actors**:
-   - **LinkedIn Extraction**: Utilizes Apify's public LinkedIn profile actor. Extracts structured headline, summary bio, employment chronology, educational credentials, and skill sets without requiring logged-in sessions.
-   - **Instagram Extraction**: Utilizes Apify's public Instagram profile actor. Extracts account bio, post counts, engagement metrics, and recent public post captions to capture aesthetic vibes, hobbies, and tone of voice.
-
-2. **Private Account Handling**:
-   - When an Instagram account is private, the scraper catches the status gracefully, sets `instagram_private: true`, and adapts the Gemini synthesis prompt to lean on LinkedIn professional history and public verified signals without failing the pipeline.
-
-3. **Deduplication & Database Caching Layer**:
-   - All scraped JSON payloads are stored in the `raw_data` table (indexed by `person_id` and platform).
-   - If a candidate's data has already been scraped within the validity window, the scraper returns cached data instantly, eliminating redundant network calls and preserving Apify compute units.
-
-4. **Resilience & Rate-Limiting Engine**:
-   - Implements automated retry loops with exponential backoff and randomized jitter to handle upstream rate limits (HTTP 429) or actor cold starts.
-   - Server-side isolation ensures `APIFY_API_TOKEN` and `GEMINI_API_KEY` are never leaked to client bundles.
-
-5. **Privacy & Ethical Compliance**:
-   - Strictly queries publicly accessible endpoints. No user passwords, session tokens, or private messages are ever requested or stored.
+> Apify cloud actors via REST, no logins or cookies: harvestapi/linkedin-profile-scraper (headline, about, experience, education, volunteering, causes, honors, recommendations) and apify/instagram-profile-scraper (bio, 12 latest posts: captions, hashtags, locations, images). Raw JSON cached in Supabase Postgres via Prisma; Gemini 3.x reads both sources plus post images and outputs a cited persona. Next.js 14 + TypeScript, SSE for live dates.
 
 ---
 
