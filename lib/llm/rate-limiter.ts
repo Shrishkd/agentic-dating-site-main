@@ -181,9 +181,12 @@ export class GeminiRateLimiter {
           err?.status === 503 ||
           err?.message?.includes("503") ||
           err?.message?.includes("Service Unavailable") ||
-          err?.message?.includes("overloaded");
+          err?.message?.includes("overloaded") ||
+          err?.message?.includes("UNAVAILABLE");
 
-        if ((isRateLimitError || isServiceUnavailable) && item.retries < 5) {
+        // Overloaded models give up after 2 retries so the caller can fall back to another model.
+        const maxRetries = isServiceUnavailable && !isRateLimitError ? 2 : 5;
+        if ((isRateLimitError || isServiceUnavailable) && item.retries < maxRetries) {
           item.retries += 1;
           const rotated = this.rotateKey(err?.message || "Rate limit error");
           const backoffDelay = Math.min(1000 * Math.pow(2, item.retries), 30000);

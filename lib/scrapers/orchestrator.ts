@@ -62,10 +62,18 @@ export async function scrapePerson(
 
   try {
     // 3. Run both scrapers in parallel
-    const [linkedinRes, instagramRes] = await Promise.all([
+    let [linkedinRes, instagramRes] = await Promise.all([
       scrapeLinkedInProfile(person.linkedin_url),
       scrapeInstagramProfile(person.instagram_url),
     ]);
+
+    // Apify runs occasionally come back empty; one retry per failed source.
+    if (!linkedinRes.success || (!instagramRes.success && !instagramRes.isPrivate)) {
+      [linkedinRes, instagramRes] = await Promise.all([
+        linkedinRes.success ? linkedinRes : scrapeLinkedInProfile(person.linkedin_url),
+        instagramRes.success || instagramRes.isPrivate ? instagramRes : scrapeInstagramProfile(person.instagram_url),
+      ]);
+    }
 
     // Handle Private Instagram
     if (instagramRes.isPrivate) {

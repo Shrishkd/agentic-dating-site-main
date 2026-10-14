@@ -122,11 +122,17 @@ async function scheduleCall<T>(
     }
 
     // Call Gemini models.generateContent API
-    const response = await ai.models.generateContent({
-      model,
-      contents,
-      config,
-    });
+    const timeoutMs = parseInt(process.env.GEMINI_TIMEOUT_MS || "60000", 10);
+    const response: any = await Promise.race([
+      ai.models.generateContent({
+        model,
+        contents,
+        config,
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`503 UNAVAILABLE: ${model} timed out after ${timeoutMs}ms`)), timeoutMs)
+      ),
+    ]);
 
     const outputText = response.text || "";
 
